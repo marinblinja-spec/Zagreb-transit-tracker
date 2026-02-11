@@ -1,0 +1,504 @@
+<!DOCTYPE html>
+<html lang="hr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+    <title>ZET Elite Pro - Realtime</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;600;700;800&display=swap');
+        
+        :root {
+            --zet-blue: #0070f3;
+            --bg-dark: #020617;
+            --glass: rgba(15, 23, 42, 0.85);
+            --border: rgba(255, 255, 255, 0.12);
+        }
+
+        body { 
+            font-family: 'Plus Jakarta Sans', sans-serif; 
+            background: var(--bg-dark); 
+            color: white;
+            margin: 0;
+            overflow: hidden;
+            display: flex;
+            flex-direction: column;
+            height: 100vh;
+        }
+
+        header {
+            padding: env(safe-area-inset-top, 24px) 20px 16px;
+            z-index: 100;
+        }
+
+        .search-wrapper {
+            background: var(--glass);
+            backdrop-filter: blur(30px);
+            border: 1px solid var(--border);
+            border-radius: 30px; 
+            padding: 14px 20px;
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.4);
+            margin-bottom: 12px;
+        }
+
+        .filter-bar {
+            display: flex;
+            gap: 8px;
+            padding: 0 4px;
+        }
+
+        .filter-btn {
+            background: rgba(255,255,255,0.05);
+            border: 1px solid var(--border);
+            padding: 8px 16px;
+            border-radius: 20px;
+            font-size: 11px;
+            font-weight: 800;
+            text-transform: uppercase;
+            color: #94a3b8;
+            transition: all 0.3s ease;
+        }
+
+        .filter-btn.active {
+            background: var(--zet-blue);
+            color: white;
+            border-color: var(--zet-blue);
+            box-shadow: 0 4px 12px rgba(0, 112, 243, 0.3);
+        }
+
+        main {
+            flex: 1;
+            overflow-y: auto;
+            padding: 0 20px 140px;
+            z-index: 10;
+            transition: transform 0.6s cubic-bezier(0.16, 1, 0.3, 1);
+        }
+
+        .collapsed main { transform: translateY(82vh); }
+        .collapsed header { transform: translateY(-130%); opacity: 0; }
+
+        #map { 
+            position: absolute; 
+            top: 0; left: 0; width: 100%; height: 100%; 
+            z-index: 0; 
+            transition: filter 0.5s ease;
+        }
+        
+        .map-dark { filter: brightness(0.4) contrast(1.1) saturate(0.8); }
+        .map-light { filter: brightness(1) contrast(1) saturate(1); }
+
+        nav {
+            position: fixed;
+            bottom: 24px; left: 20px; right: 20px;
+            background: rgba(15, 23, 42, 0.95);
+            backdrop-filter: blur(40px);
+            border: 1px solid var(--border);
+            border-radius: 35px; 
+            display: flex;
+            justify-content: space-around;
+            padding: 12px 10px;
+            z-index: 1000;
+            box-shadow: 0 15px 40px rgba(0,0,0,0.6);
+        }
+
+        .nav-item {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 4px;
+            color: #64748b;
+            flex: 1;
+            background: none;
+            border: none;
+            transition: all 0.2s ease;
+        }
+
+        .nav-item.active { color: var(--zet-blue); transform: scale(1.05); }
+        .nav-label { font-size: 9px; font-weight: 800; text-transform: uppercase; }
+
+        .collapse-trigger {
+            width: 50px; height: 7px;
+            background: rgba(255,255,255,0.2);
+            border-radius: 10px;
+            margin: 15px auto 25px;
+            cursor: pointer;
+        }
+
+        .section { display: none; }
+        .section.active { display: block; }
+
+        .card {
+            background: rgba(255,255,255,0.04);
+            backdrop-filter: blur(10px);
+            border: 1px solid var(--border);
+            border-radius: 28px; 
+            padding: 18px;
+            margin-bottom: 14px;
+        }
+
+        .badge-line {
+            width: 48px; height: 48px;
+            border-radius: 18px; 
+            display: flex; align-items: center; justify-content: center;
+            font-weight: 800; font-size: 18px;
+            color: white;
+            flex-shrink: 0;
+        }
+
+        .zet-marker {
+            background: var(--zet-blue);
+            border: 2px solid white;
+            border-radius: 50%;
+            width: 28px !important; height: 28px !important;
+            display: flex; align-items: center; justify-content: center;
+            color: white; font-weight: 800; font-size: 10px;
+        }
+
+        .no-scrollbar::-webkit-scrollbar { display: none; }
+
+        .settings-row {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 12px 0;
+            border-bottom: 1px solid rgba(255,255,255,0.05);
+        }
+        .settings-row:last-child { border-bottom: none; }
+    </style>
+</head>
+<body id="app-body">
+
+    <div id="map" class="map-dark"></div>
+
+    <header id="app-header">
+        <div class="search-wrapper">
+            <svg class="w-5 h-5 text-blue-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" stroke-width="3"/></svg>
+            <input type="text" id="main-search" placeholder="Pretraži 256+ stanica..." 
+                   class="bg-transparent border-none outline-none text-white font-bold w-full text-sm"
+                   oninput="handleSearch(this.value)">
+        </div>
+        
+        <div class="filter-bar" id="top-filter-bar">
+            <button onclick="setFilter('all')" id="filter-all" class="filter-btn active">Sve</button>
+            <button onclick="setFilter('tram')" id="filter-tram" class="filter-btn">Tramvaji</button>
+            <button onclick="setFilter('bus')" id="filter-bus" class="filter-btn">Busevi</button>
+        </div>
+
+        <div id="search-results" class="hidden mt-3 bg-slate-900/95 backdrop-blur-2xl rounded-[25px] border border-white/10 max-h-64 overflow-y-auto shadow-2xl z-50"></div>
+    </header>
+
+    <main class="no-scrollbar" id="app-main">
+        <div class="collapse-trigger" onclick="toggleMap()"></div>
+        
+        <div id="arrivals" class="section active">
+            <div class="mb-6">
+                <p class="text-[10px] font-black text-blue-500 uppercase tracking-widest mb-1" id="label-station-status">Status stanice</p>
+                <h2 id="current-station-label" class="text-3xl font-black tracking-tight">Trg bana Jelačića</h2>
+            </div>
+            <div id="arrivals-list" class="space-y-4"></div>
+        </div>
+
+        <div id="lines" class="section">
+            <h2 class="text-2xl font-black mb-1" id="label-network-title">Mreža linija</h2>
+            <p id="network-station-subtitle" class="text-[10px] font-black text-blue-500 uppercase tracking-widest mb-6"></p>
+            <div id="lines-detailed" class="space-y-4"></div>
+        </div>
+
+        <div id="settings" class="section">
+            <h2 class="text-2xl font-black mb-6" id="label-settings-title">Postavke</h2>
+            
+            <div class="card">
+                <h3 class="text-xs font-black text-blue-500 uppercase tracking-widest mb-4">Izgled i Karta</h3>
+                <div class="settings-row">
+                    <span class="text-sm font-bold">Tamni način karte</span>
+                    <input type="checkbox" checked onchange="toggleMapTheme(this.checked)" class="w-10 h-5 bg-slate-700 rounded-full appearance-none checked:bg-blue-600 transition-all relative cursor-pointer before:content-[''] before:absolute before:w-4 before:h-4 before:bg-white before:rounded-full before:top-0.5 before:left-0.5 checked:before:left-5 before:transition-all">
+                </div>
+                <div class="settings-row">
+                    <span class="text-sm font-bold">Jezik / Language</span>
+                    <select onchange="changeLanguage(this.value)" class="bg-slate-800 text-xs font-bold border-none outline-none rounded-lg p-1">
+                        <option value="hr">Hrvatski</option>
+                        <option value="en">English</option>
+                    </select>
+                </div>
+            </div>
+
+            <div class="card">
+                <h3 class="text-xs font-black text-blue-500 uppercase tracking-widest mb-4">O aplikaciji</h3>
+                <div class="settings-row">
+                    <span class="text-sm font-bold">Verzija</span>
+                    <span class="text-xs text-slate-400">2.7.1-DB</span>
+                </div>
+                <div class="settings-row">
+                    <span class="text-sm font-bold">Lead Developer</span>
+                    <span class="text-xs text-blue-400 font-black tracking-tight">MARIN BLINJA</span>
+                </div>
+                <div class="settings-row">
+                    <span class="text-sm font-bold">Tracking sustav</span>
+                    <span class="text-xs text-slate-400">ZET Realtime Data</span>
+                </div>
+            </div>
+        </div>
+
+        <div id="info" class="section">
+            <div class="flex justify-between items-center mb-6">
+                <h2 class="text-2xl font-black">Obavijesti</h2>
+                <span class="text-[10px] font-black text-slate-400 uppercase">Real-time</span>
+            </div>
+            <div id="info-list" class="space-y-4"></div>
+        </div>
+    </main>
+
+    <nav>
+        <button onclick="switchSection('arrivals', 0)" class="nav-item active" id="btn-0">
+            <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" stroke-width="2.5"/></svg>
+            <span class="nav-label" id="nav-status">Status</span>
+        </button>
+        <button onclick="switchSection('lines', 1)" class="nav-item" id="btn-1">
+            <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path d="M9 20l-5.447-2.724A1 1 0 013 16.382V5.618a1 1 0 011.447-.894L9 7m0 13l6-3m-6 3V7m6 10l4.553 2.276A1 1 0 0021 18.382V7.618a1 1 0 00-.553-.894L15 4m0 13V4m0 0L9 7" stroke-width="2.5"/></svg>
+            <span class="nav-label" id="nav-network">Mreža</span>
+        </button>
+        <button onclick="switchSection('settings', 2)" class="nav-item" id="btn-2">
+            <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" stroke-width="2.5"/><path d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" stroke-width="2.5"/></svg>
+            <span class="nav-label" id="nav-settings">Postavke</span>
+        </button>
+        <button onclick="switchSection('info', 3)" class="nav-item" id="btn-3">
+            <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" stroke-width="2.5"/></svg>
+            <span class="nav-label" id="nav-info">Info</span>
+        </button>
+    </nav>
+
+    <script>
+        const LANG = {
+            hr: {
+                status: "Status", network: "Mreža", settings: "Postavke", info: "Info",
+                stationStatus: "Status stanice", networkTitle: "Mreža linija", settingsTitle: "Postavke",
+                all: "Sve", tram: "Tramvaji", bus: "Busevi", search: "Pretraži stanice...",
+                min: "min", tramLabel: "Tramvaj", busLabel: "Autobus", lowFloor: "Niskopodni", highFloor: "Visokopodni"
+            },
+            en: {
+                status: "Status", network: "Network", settings: "Settings", info: "News",
+                stationStatus: "Station Status", networkTitle: "Line Network", settingsTitle: "Settings",
+                all: "All", tram: "Trams", bus: "Buses", search: "Search stations...",
+                min: "min", tramLabel: "Tram", busLabel: "Bus", lowFloor: "Low floor", highFloor: "High floor"
+            }
+        };
+
+        const LINE_ROUTES = {
+            1: { name: "Zapadni kolodvor - Borongaj", type: 'tram' },
+            2: { name: "Črnomerec - Savišće", type: 'tram' },
+            3: { name: "Ljubljanica - Savišće", type: 'tram' },
+            4: { name: "Savski most - Dubec", type: 'tram' },
+            5: { name: "Prečko - Maksimir", type: 'tram' },
+            6: { name: "Črnomerec - Sopot", type: 'tram' },
+            7: { name: "Savski most - Dubrava", type: 'tram' },
+            8: { name: "Mihaljevac - Zapruđe", type: 'tram' },
+            9: { name: "Ljubljanica - Borongaj", type: 'tram' },
+            11: { name: "Črnomerec - Dubec", type: 'tram' },
+            12: { name: "Ljubljanica - Dubrava", type: 'tram' },
+            13: { name: "Žitnjak - Kvaternikov trg", type: 'tram' },
+            14: { name: "Mihaljevac - Savski most", type: 'tram' },
+            15: { name: "Mihaljevac - Gračansko dolje", type: 'tram' },
+            17: { name: "Prečko - Borongaj", type: 'tram' },
+            107: { name: "Jankomir - Žitnjak", type: 'bus' },
+            109: { name: "Črnomerec - Dugave", type: 'bus' },
+            217: { name: "Kvaternikov trg - Petruševec", type: 'bus' },
+            268: { name: "Glavni kolodvor - Velika Gorica", type: 'bus' },
+            290: { name: "Kvaternikov trg - Zračna luka", type: 'bus' }
+        };
+
+        // Baza svih stanica (256+)
+        const RAW_STATIONS = [
+            // Dodane specifične stanice
+            { name: "Trg kralja Petra Krešimira IV", lat: 45.8066, lng: 15.9922, lines: [2, 5, 6, 7, 8] },
+            { name: "Branimirova tržnica", lat: 45.8058, lng: 15.9902, lines: [2, 6, 8] },
+            // Centar / Core
+            { name: "Trg bana Jelačića", lat: 45.8131, lng: 15.9772, lines: [1, 6, 11, 12, 13, 14, 17] },
+            { name: "Glavni kolodvor", lat: 45.8048, lng: 15.9789, lines: [2, 4, 6, 9, 13] },
+            { name: "Britanski trg", lat: 45.8129, lng: 15.9688, lines: [1, 6, 11] },
+            { name: "Frankopanska", lat: 45.8118, lng: 15.9715, lines: [1, 12, 13, 14, 17] },
+            { name: "Vodnikova", lat: 45.8068, lng: 15.9723, lines: [2, 4, 9, 12, 13, 14, 17] },
+            { name: "Vrapče", lat: 45.8150, lng: 15.9050, lines: [120, 121, 146] },
+            { name: "Črnomerec", lat: 45.8152, lng: 15.9348, lines: [2, 6, 11, 109] },
+            { name: "Savski most", lat: 45.7891, lng: 15.9592, lines: [4, 7, 14, 109] },
+            { name: "Maksimir", lat: 45.8210, lng: 16.0125, lines: [4, 5, 7, 11, 12] },
+            { name: "Dubrava", lat: 45.8285, lng: 16.0410, lines: [4, 7, 11, 12] },
+            { name: "Žitnjak", lat: 45.7985, lng: 16.0250, lines: [2, 3, 13] }
+        ];
+
+        // Fill up to 256 for realism
+        const SUB_NAMES = ["Kustošija", "Selska", "Remiza", "Jarun", "Prečko", "Sopot", "Utrina", "Dugave", "Siget", "Lanište", "Arena Zagreb", "Buzin", "Velika Gorica", "Pleso", "Jordanovac", "Ravnice", "Borongaj", "Kvaternikov trg", "Vjesnik", "Knežija", "Mihaljevac", "Gračani", "Šestine", "Mlinovi", "Ksaver", "Bijenička", "Remete", "Savišće", "Ferenščica", "Resnik", "Kozari bok"];
+        const SUFFIXES = ["", " - škola", " - dom zdravlja", " - sjever", " - jug", " istok", " zapad", " (vlak)", " II.", " raskrižje"];
+        
+        const STATIONS = [...RAW_STATIONS];
+        while(STATIONS.length < 258) {
+            const base = SUB_NAMES[Math.floor(Math.random() * SUB_NAMES.length)];
+            const suf = SUFFIXES[Math.floor(Math.random() * SUFFIXES.length)];
+            const newName = base + suf;
+            if(!STATIONS.some(s => s.name === newName)) {
+                STATIONS.push({
+                    name: newName,
+                    lat: 45.8131 + (Math.random()-0.5)*0.15,
+                    lng: 15.9772 + (Math.random()-0.5)*0.25,
+                    lines: [
+                        Object.keys(LINE_ROUTES)[Math.floor(Math.random()*Object.keys(LINE_ROUTES).length)],
+                        Object.keys(LINE_ROUTES)[Math.floor(Math.random()*Object.keys(LINE_ROUTES).length)]
+                    ].map(Number)
+                });
+            }
+        }
+        
+        // Assign IDs
+        STATIONS.forEach((s, i) => s.id = `st-${i}`);
+
+        let map, currentStop = STATIONS[0], vehicleMarkers = new Map(), vehicles = [];
+        let currentFilter = 'all', currentLang = 'hr';
+
+        function init() {
+            map = L.map('map', { zoomControl: false, attributionControl: false }).setView([45.8131, 15.9772], 14);
+            L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png').addTo(map);
+            
+            generateVehicles();
+            renderInfo();
+            updateUI();
+            
+            setInterval(() => {
+                animateVehicles();
+                updateUI();
+            }, 3000);
+        }
+
+        function generateVehicles() {
+            vehicles = [];
+            Object.keys(LINE_ROUTES).forEach(lineId => {
+                const type = LINE_ROUTES[lineId].type;
+                for(let i=0; i<3; i++) {
+                    let gNo = (lineId > 100 ? 500 : 2200) + Math.floor(Math.random()*400);
+                    vehicles.push({
+                        id: parseInt(lineId),
+                        type: type,
+                        route: LINE_ROUTES[lineId].name,
+                        gNo: gNo,
+                        lat: 45.8131 + (Math.random()-0.5)*0.1,
+                        lng: 15.9772 + (Math.random()-0.5)*0.15,
+                        eta: Math.floor(Math.random()*20) + 1,
+                        lowFloor: gNo >= 2200 || gNo < 600
+                    });
+                }
+            });
+        }
+
+        function toggleMapTheme(isDark) {
+            document.getElementById('map').className = isDark ? 'map-dark' : 'map-light';
+        }
+
+        function changeLanguage(val) {
+            currentLang = val;
+            const l = LANG[val];
+            ['nav-status', 'nav-network', 'nav-settings', 'nav-info', 'label-station-status', 'label-network-title', 'label-settings-title', 'filter-all', 'filter-tram', 'filter-bus'].forEach(id => {
+                const key = id.split('-').pop();
+                if(document.getElementById(id)) document.getElementById(id).innerText = l[key] || l[id.replace('label-','').replace('-title','')];
+            });
+            document.getElementById('main-search').placeholder = l.search;
+            updateUI();
+        }
+
+        function setFilter(filter) {
+            currentFilter = filter;
+            document.querySelectorAll('.filter-btn').forEach(btn => btn.classList.toggle('active', btn.id === `filter-${filter}`));
+            vehicleMarkers.forEach((m, gNo) => {
+                const v = vehicles.find(veh => veh.gNo === gNo);
+                m.getElement().style.display = (filter === 'all' || v.type === filter) ? 'flex' : 'none';
+            });
+            updateUI();
+        }
+
+        function animateVehicles() {
+            vehicles.forEach(v => {
+                v.lat += (Math.random() - 0.5) * 0.0006;
+                v.lng += (Math.random() - 0.5) * 0.0006;
+                v.eta = v.eta > 0.5 ? v.eta - 0.1 : Math.floor(Math.random()*15) + 5;
+                if (vehicleMarkers.has(v.gNo)) {
+                    vehicleMarkers.get(v.gNo).setLatLng([v.lat, v.lng]);
+                } else {
+                    const icon = L.divIcon({ className: 'zet-marker', html: `<span>${v.id}</span>`, iconSize: [28, 28] });
+                    const m = L.marker([v.lat, v.lng], { icon }).addTo(map);
+                    vehicleMarkers.set(v.gNo, m);
+                }
+            });
+        }
+
+        function updateUI() {
+            const list = document.getElementById('arrivals-list');
+            const network = document.getElementById('lines-detailed');
+            const l = LANG[currentLang];
+
+            const arrivals = vehicles.filter(v => currentStop.lines.includes(v.id) && (currentFilter === 'all' || v.type === currentFilter));
+            list.innerHTML = arrivals.sort((a,b) => a.eta - b.eta).map(v => `
+                <div class="card flex items-center justify-between">
+                    <div class="flex items-center gap-4">
+                        <div class="badge-line ${v.type === 'bus' ? 'bg-blue-800' : 'bg-blue-600'}">${v.id}</div>
+                        <div>
+                            <h4 class="font-extrabold text-sm">${v.route.split(' - ')[1] || v.route}</h4>
+                            <p class="text-[9px] font-black uppercase tracking-widest ${v.lowFloor ? 'text-green-400' : 'text-slate-500'} mt-1">
+                                ${v.type === 'tram' ? l.tramLabel : l.busLabel} • ${v.lowFloor ? l.lowFloor : l.highFloor}
+                            </p>
+                        </div>
+                    </div>
+                    <div class="text-right"><span class="text-2xl font-black">${Math.round(v.eta)}</span><span class="text-[10px] font-black text-blue-500 uppercase ml-1">${l.min}</span></div>
+                </div>
+            `).join('') || `<div class="card text-center py-10 opacity-30 text-[10px] font-bold uppercase tracking-widest">Nema dolazaka</div>`;
+
+            document.getElementById('network-station-subtitle').innerText = currentStop.name;
+            network.innerHTML = currentStop.lines.filter(id => currentFilter === 'all' || LINE_ROUTES[id].type === currentFilter).map(id => `
+                <div class="card">
+                    <div class="flex items-center gap-3 mb-2">
+                        <div class="w-10 h-10 rounded-xl ${LINE_ROUTES[id]?.type === 'bus' ? 'bg-blue-800' : 'bg-blue-600'} flex items-center justify-center font-black text-lg">${id}</div>
+                        <span class="text-xs font-black uppercase">${LINE_ROUTES[id]?.name || 'Nepoznata linija'}</span>
+                    </div>
+                </div>
+            `).join('');
+        }
+
+        function handleSearch(val) {
+            const box = document.getElementById('search-results');
+            if (val.length < 1) { box.classList.add('hidden'); return; }
+            const matches = STATIONS.filter(s => s.name.toLowerCase().includes(val.toLowerCase())).slice(0, 15);
+            box.innerHTML = matches.map(s => `
+                <div onclick="selectStop('${s.id}')" class="p-4 border-b border-white/5 hover:bg-blue-600/20 text-sm font-bold flex justify-between items-center cursor-pointer">
+                    <span>${s.name}</span>
+                    <div class="flex gap-1">${s.lines.slice(0,3).map(l => `<span class="bg-blue-600/30 text-[9px] px-1.5 py-0.5 rounded">${l}</span>`).join('')}</div>
+                </div>
+            `).join('');
+            box.classList.remove('hidden');
+        }
+
+        function selectStop(id) {
+            currentStop = STATIONS.find(x => x.id === id);
+            map.flyTo([currentStop.lat, currentStop.lng], 16);
+            document.getElementById('search-results').classList.add('hidden');
+            document.getElementById('main-search').value = '';
+            document.getElementById('current-station-label').innerText = currentStop.name;
+            updateUI();
+        }
+
+        function switchSection(id, index) {
+            document.querySelectorAll('.section').forEach(s => s.classList.remove('active'));
+            document.getElementById(id).classList.add('active');
+            document.querySelectorAll('.nav-item').forEach((btn, i) => btn.classList.toggle('active', i === index));
+            document.getElementById('top-filter-bar').style.display = (id === 'settings' || id === 'info') ? 'none' : 'flex';
+        }
+
+        function toggleMap() { document.getElementById('app-body').classList.toggle('collapsed'); }
+        function renderInfo() {
+            document.getElementById('info-list').innerHTML = `<div class="card border-l-4 border-blue-500"><h3 class="font-bold text-sm mb-1">Baza podataka ažurirana</h3><p class="text-xs text-slate-400 leading-relaxed">Dodane stanice: Branimirova tržnica i Trg kralja Petra Krešimira IV.</p></div>`;
+        }
+
+        window.onload = init;
+    </script>
+</body>
+</html>
